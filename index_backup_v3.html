@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Flight Route Planner</title>
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <!-- Cesium -->
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.118/Build/Cesium/Cesium.js"></script>
+    <link href="https://cesium.com/downloads/cesiumjs/releases/1.118/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+    <!-- Chart.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+    <!-- CSS -->
+    <style>
+        :root {
+            --bg-glass: rgba(15, 20, 25, 0.75);
+            --bg-solid: #0f1419;
+            --accent: #00d2ff;
+            --accent-hover: #3a7bd5;
+            --text-main: #f0f0f0;
+            --text-dim: #a0a0a0;
+            --danger: #ff4b4b;
+            --success: #00e676;
+            --font: 'Inter', sans-serif;
+            --border: rgba(255, 255, 255, 0.1);
+        }
+        
+        body { margin: 0; padding: 0; overflow: hidden; font-family: var(--font); color: var(--text-main); background: #000; }
+        #cesiumContainer { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; }
+        
+        /* Utility */
+        .glass-panel {
+            background: var(--bg-glass);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+        }
+        .hidden { display: none !important; }
+        
+        h1, h2, h3, h4 { margin: 0 0 10px 0; font-weight: 600; }
+        h2 { font-size: 1.2rem; border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 15px; }
+        
+        /* Title Screen */
+        #titleScreen {
+            position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(0,0,0,0.85); z-index: 1000;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            text-align: center;
+        }
+        #titleScreen h1 { font-size: 3rem; color: var(--accent); margin-bottom: 5px; }
+        #titleScreen h3 { font-size: 1.5rem; color: var(--text-dim); margin-bottom: 40px; font-weight: 300; }
+        #titleScreen p { font-size: 1.1rem; margin: 10px 0; }
+        #btnStart {
+            margin-top: 40px; padding: 15px 40px; font-size: 1.2rem; font-weight: 600;
+            background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+            color: white; border: none; border-radius: 30px; cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        #btnStart:hover { transform: scale(1.05); box-shadow: 0 0 20px rgba(0, 210, 255, 0.4); }
+
+        /* Sidebar Left */
+        #sidebar {
+            position: absolute; top: 20px; left: 20px; width: 340px;
+            max-height: calc(100vh - 40px); overflow-y: auto;
+            padding: 20px; z-index: 10;
+        }
+        
+        /* Form elements */
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-size: 0.85rem; color: var(--text-dim); }
+        select, input[type="range"] { 
+            width: 100%; padding: 10px; background: rgba(0,0,0,0.5); 
+            color: white; border: 1px solid var(--border); border-radius: 6px; 
+            font-family: var(--font); outline: none;
+        }
+        select:focus { border-color: var(--accent); }
+        
+        button {
+            width: 100%; padding: 10px; margin-top: 5px; font-family: var(--font); font-weight: 600;
+            background: rgba(255,255,255,0.1); color: white; border: 1px solid var(--border);
+            border-radius: 6px; cursor: pointer; transition: all 0.2s;
+        }
+        button:hover { background: rgba(255,255,255,0.2); }
+        button.primary { background: var(--accent); color: #000; border: none; }
+        button.primary:hover { background: var(--accent-hover); color: white; }
+        
+        .toggle-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; font-size: 0.9rem; }
+        .toggle-row input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; cursor: pointer; }
+        
+        /* Demos */
+        .demo-group { margin-top: 20px; border-top: 1px solid var(--border); padding-top: 15px; }
+        .demo-btn { font-size: 0.8rem; padding: 6px; margin-bottom: 8px; text-align: left; background: rgba(0, 210, 255, 0.1); border-color: rgba(0, 210, 255, 0.3); color: var(--accent); }
+        .demo-btn:hover { background: rgba(0, 210, 255, 0.2); }
+
+        /* Search Console */
+        #searchConsole {
+            position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+            width: 400px; padding: 15px; z-index: 10; text-align: center;
+        }
+        .console-stat { display: flex; justify-content: space-between; font-size: 0.85rem; margin-top: 8px; font-family: monospace; }
+        .console-stat span { color: var(--accent); }
+        #replayControls { display: flex; align-items: center; gap: 10px; margin-top: 15px; }
+        
+        /* Results Drawer */
+        #resultsDrawer {
+            position: absolute; top: 20px; right: -450px; width: 400px;
+            height: calc(100vh - 40px); padding: 20px; z-index: 10;
+            display: flex; flex-direction: column; transition: right 0.4s cubic-bezier(0.1, 0.9, 0.2, 1);
+        }
+        #resultsDrawer.open { right: 20px; }
+        
+        .tabs { display: flex; border-bottom: 1px solid var(--border); margin-bottom: 15px; }
+        .tab { flex: 1; padding: 10px 5px; text-align: center; cursor: pointer; font-size: 0.85rem; color: var(--text-dim); }
+        .tab.active { color: var(--accent); border-bottom: 2px solid var(--accent); font-weight: 600; }
+        
+        .tab-content { flex: 1; overflow-y: auto; }
+        
+        .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .stat-card { background: rgba(0,0,0,0.4); padding: 12px; border-radius: 8px; border: 1px solid var(--border); }
+        .stat-val { font-size: 1.2rem; font-weight: 800; color: var(--accent); margin-top: 5px; }
+        .stat-lbl { font-size: 0.75rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+        
+        .table-container { overflow-x: auto; font-size: 0.8rem; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 8px 4px; text-align: left; border-bottom: 1px solid var(--border); }
+        th { color: var(--text-dim); font-weight: normal; }
+        .text-red { color: var(--danger); }
+        .text-green { color: var(--success); }
+        
+        .chart-container { height: 200px; margin-bottom: 20px; width: 100%; }
+        
+        /* Bottom HUD */
+        #hud {
+            position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+            width: 600px; padding: 15px 25px; z-index: 10;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .hud-item { text-align: center; }
+        .hud-val { font-size: 1.4rem; font-weight: 800; color: white; font-family: monospace; }
+        .hud-lbl { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; }
+        
+        /* Help Panel */
+        #helpBtn {
+            position: absolute; bottom: 20px; right: 20px; width: 40px; height: 40px;
+            border-radius: 50%; background: var(--bg-glass); border: 1px solid var(--border);
+            color: var(--text-dim); font-size: 1.2rem; cursor: pointer; z-index: 10;
+            display: flex; align-items: center; justify-content: center; transition: all 0.2s;
+        }
+        #helpBtn:hover { color: white; border-color: white; }
+        #helpPanel {
+            position: absolute; bottom: 70px; right: 20px; width: 300px; padding: 15px;
+            z-index: 10; font-size: 0.85rem; line-height: 1.5; color: var(--text-dim);
+        }
+        
+        /* Overlays */
+        #loading {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            padding: 20px 40px; z-index: 50; font-size: 1.2rem; color: var(--accent);
+        }
+        #errorMsg {
+            color: var(--danger); font-size: 0.85rem; margin-top: 10px; font-weight: 600; text-align: center;
+        }
+        
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.4); }
+    </style>
+</head>
+<body>
+
+    <!-- Title Screen -->
+    <div id="titleScreen">
+        <h1>Flight Route Planner</h1>
+        <h3>AI-Based A* Search with Real-World Constraints</h3>
+        <p>Team: Debi Prasad Samal (24BIT0451) & Sagar Sahu (24BIT0501)</p>
+        <p>Guide: Dr. Tapan Kumar Das</p>
+        <p>Course: BITE308L - Artificial Intelligence Lab</p>
+        <button id="btnStart">Launch Mission Control</button>
+    </div>
+
+    <!-- Cesium Container -->
+    <div id="cesiumContainer"></div>
+
+    <!-- Loading / Error -->
+    <div id="loading" class="glass-panel hidden">Computing optimal route...</div>
+
+    <!-- Sidebar Left -->
+    <div id="sidebar" class="glass-panel hidden">
+        <h2>Mission Parameters</h2>
+        
+        <div class="form-group">
+            <label>Origin</label>
+            <select id="origin"></select>
+        </div>
+        <div class="form-group">
+            <label>Destination</label>
+            <select id="destination"></select>
+        </div>
+        
+        <button id="btnFindRoute" class="primary">Execute Search (A*)</button>
+        <div id="errorMsg"></div>
+        
+        <h3 style="margin-top:20px; font-size:0.9rem; color:var(--text-dim);">Constraints</h3>
+        <div class="toggle-row">
+            <label for="togWind" style="margin:0;">Wind Effects</label>
+            <input type="checkbox" id="togWind" checked>
+        </div>
+        <div class="toggle-row">
+            <label for="togZones" style="margin:0;">Restricted Zones</label>
+            <input type="checkbox" id="togZones" checked>
+        </div>
+        <div class="toggle-row">
+            <label for="togFuel" style="margin:0;">Fuel Limit Cutoff</label>
+            <input type="checkbox" id="togFuel" checked>
+        </div>
+        
+        <div class="form-group" style="margin-top:10px;">
+            <label>Custom No-Fly Zone Radius (km): <span id="radiusVal">100</span></label>
+            <input type="range" id="radiusSlider" min="30" max="200" value="100">
+            <div style="font-size:0.7rem; color:var(--text-dim); margin-top:5px;">Click on the globe to drop zones (max 5)</div>
+            <button id="btnClearZones" style="margin-top:10px; font-size:0.75rem; padding:6px;">Clear Custom Zones</button>
+        </div>
+        
+        <h3 style="margin-top:20px; font-size:0.9rem; color:var(--text-dim);">Overlays</h3>
+        <div class="toggle-row">
+            <label for="ovlWind" style="margin:0;">Wind Field Arrows</label>
+            <input type="checkbox" id="ovlWind">
+        </div>
+        <div class="toggle-row">
+            <label for="ovlBaseline" style="margin:0;">Distance-Only Route (Baseline)</label>
+            <input type="checkbox" id="ovlBaseline">
+        </div>
+        <div class="toggle-row">
+            <label for="ovlGC" style="margin:0;">Great Circle (Shortest)</label>
+            <input type="checkbox" id="ovlGC">
+        </div>
+        
+        <div class="demo-group">
+            <h3 style="font-size:0.9rem; color:var(--text-dim);">Quick Demos</h3>
+            <button class="demo-btn" id="demo1">1. Wind Effect (VIDP &rarr; VABB)</button>
+            <button class="demo-btn" id="demo2">2. Zone Dodge (VEBS &rarr; VOMM)</button>
+            <button class="demo-btn" id="demo3">3. Custom Blockade (VIDP &rarr; VOBL)</button>
+        </div>
+    </div>
+
+    <!-- Search Console (A* Replay) -->
+    <div id="searchConsole" class="glass-panel hidden">
+        <h3 style="color:var(--accent); font-size:1rem;">A* Search Live Trace</h3>
+        <div class="console-stat">Step: <span id="scStep">0 / 0</span></div>
+        <div class="console-stat">Expanding Node: <span id="scNode">-</span></div>
+        <div class="console-stat">g(n) Cost: <span id="scG">0</span> km</div>
+        <div class="console-stat">h(n) Heuristic: <span id="scH">0</span> km</div>
+        <div class="console-stat">f(n) Total: <span id="scF">0</span> km</div>
+        <div class="console-stat">Frontier Size: <span id="scFrontier">0</span></div>
+        
+        <div id="replayControls">
+            <label style="margin:0; min-width:60px; text-align:left;">Speed:</label>
+            <input type="range" id="scSpeed" min="0.5" max="5" step="0.5" value="1" style="flex:1;">
+            <button id="btnSkip" style="width:auto; padding:5px 15px; margin:0;">Skip</button>
+        </div>
+    </div>
+
+    <!-- Results Drawer -->
+    <div id="resultsDrawer" class="glass-panel">
+        <div class="tabs">
+            <div class="tab active" data-tab="tab-overview">Overview</div>
+            <div class="tab" data-tab="tab-legs">Legs</div>
+            <div class="tab" data-tab="tab-charts">Charts</div>
+            <div class="tab" data-tab="tab-validate">Validation</div>
+        </div>
+        
+        <div id="tab-overview" class="tab-content">
+            <div class="stat-grid">
+                <div class="stat-card">
+                    <div class="stat-lbl">Total Distance</div>
+                    <div class="stat-val"><span id="resDist">0</span> km</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-lbl">Effective Distance</div>
+                    <div class="stat-val"><span id="resEff">0</span> km</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-lbl">Est. Time</div>
+                    <div class="stat-val"><span id="resTime">0</span> min</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-lbl">Fuel Used</div>
+                    <div class="stat-val"><span id="resFuel">0</span> kg</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-lbl">Nodes Expanded</div>
+                    <div class="stat-val" id="resNodes">0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-lbl">Route Efficiency</div>
+                    <div class="stat-val"><span id="resEffPct">0</span>%</div>
+                </div>
+            </div>
+            
+            <div style="margin-top:20px; padding:15px; background:rgba(0, 210, 255, 0.1); border-radius:8px; border:1px solid rgba(0,210,255,0.3);">
+                <div style="font-size:0.85rem; color:var(--accent); font-weight:600; margin-bottom:5px;">Wind Intelligence</div>
+                <div style="font-size:0.8rem; line-height:1.4;">
+                    Compared to a straight distance-only routing, the wind-aware AI saved <strong id="resWindSave" style="color:white;">0%</strong> in total effort (effective km).
+                </div>
+            </div>
+        </div>
+        
+        <div id="tab-legs" class="tab-content hidden">
+            <div class="table-container">
+                <table id="legsTable">
+                    <thead>
+                        <tr>
+                            <th>Leg</th>
+                            <th>Airway</th>
+                            <th>Dist (km)</th>
+                            <th>Wind (km/h)</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+        
+        <div id="tab-charts" class="tab-content hidden">
+            <div class="chart-container"><canvas id="altChart"></canvas></div>
+            <div class="chart-container"><canvas id="fuelChart"></canvas></div>
+        </div>
+        
+        <div id="tab-validate" class="tab-content hidden">
+            <button id="btnRunValidation" class="primary" style="margin-bottom:15px;">Run Flight Validation</button>
+            <div id="valResults" class="hidden">
+                <div class="stat-grid" style="margin-bottom:15px;">
+                    <div class="stat-card">
+                        <div class="stat-lbl">A* Estimate</div>
+                        <div class="stat-val"><span id="valEst">0</span> m</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-lbl">Real Average</div>
+                        <div class="stat-val"><span id="valReal">0</span> m</div>
+                    </div>
+                </div>
+                <div style="font-size:0.85rem; margin-bottom:15px; text-align:center;">
+                    Error vs Real: <strong id="valErr">0%</strong>
+                </div>
+                <div class="chart-container"><canvas id="valChart"></canvas></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- HUD -->
+    <div id="hud" class="glass-panel hidden">
+        <div class="hud-item">
+            <div class="hud-val" id="hudSpeed">850</div>
+            <div class="hud-lbl">GS (km/h)</div>
+        </div>
+        <div class="hud-item">
+            <div class="hud-val" id="hudAlt">0</div>
+            <div class="hud-lbl">ALT (m)</div>
+        </div>
+        <div class="hud-item">
+            <div class="hud-val" id="hudHdg">000</div>
+            <div class="hud-lbl">HDG</div>
+        </div>
+        <div class="hud-item">
+            <div class="hud-val" id="hudFuel">15000</div>
+            <div class="hud-lbl">FUEL (kg)</div>
+        </div>
+    </div>
+
+    <!-- Help Panel -->
+    <button id="helpBtn">?</button>
+    <div id="helpPanel" class="glass-panel hidden">
+        <h4 style="color:var(--accent);">Algorithm: A* Search</h4>
+        <p><strong>f(n) = g(n) + h(n)</strong></p>
+        <p><strong>g(n):</strong> Effective distance from origin. Distance scaled by headwind/tailwind factor (0.7x to 1.5x).</p>
+        <p><strong>h(n):</strong> Admissible heuristic. 0.7 &times; Great-Circle distance to destination, guaranteeing optimality.</p>
+        <p><strong>Constraints:</strong> Lazy evaluation blocks edges entering restricted zones or exceeding fuel range mid-search.</p>
+    </div>
+
+    <!-- Script -->
+    <script>
+        // Init Cesium
+        const CESIUM_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6Ikw2UHRqLWhHeU9QVVBidXoiLCJqdGkiOiJhNGUzMjM5OC0zYzIxLTRiZWMtYTcyNC00OGZjM2VhOWEyMmEiLCJpZCI6NTE5MjAxLCJpc3MiOiJodHRwczovL2FwaS5jZXNpdW0uY29tIiwiYXVkIjoidW5kZWZpbmVkX2RlZmF1bHQiLCJpYXQiOjE3OTE2MTYxMzN9.w23gbgtYOXPYUJCoK_7v2MQfyfrJrpHjK2voaPYp_Yk";
+        Cesium.Ion.defaultAccessToken = CESIUM_TOKEN;
+
+        const viewer = new Cesium.Viewer('cesiumContainer', {
+            terrainProvider: Cesium.createWorldTerrainAsync ? undefined : Cesium.createWorldTerrain({ requestVertexNormals: true }),
+            baseLayerPicker: false,
+            animation: false,
+            timeline: false,
+            geocoder: false,
+            homeButton: false,
+            navigationHelpButton: false,
+            sceneModePicker: false,
+            infoBox: false
+        });
+        
+        if (Cesium.createWorldTerrainAsync) {
+            Cesium.createWorldTerrainAsync({ requestVertexNormals: true }).then(tp => viewer.terrainProvider = tp);
+        }
+        
+        if (Cesium.createWorldImageryAsync) {
+            Cesium.createWorldImageryAsync({ style: Cesium.IonWorldImageryStyle.AERIAL_WITH_LABELS }).then(layer => {
+                viewer.imageryLayers.addImageryProvider(layer);
+            });
+        }
+
+        viewer.scene.globe.enableLighting = true;
+        viewer.scene.fog.enabled = true;
+        viewer.scene.fog.density = 0.0001;
+
+        // Globals
+        let routeData = null;
+        let builtInZones = [];
+        let customZones = [];
+        let windField = [];
+        let traceInterval = null;
+        
+        let entities = {
+            trace: [], route: null, wall: null, aircraft: null, pins: [], 
+            customZones: [], baseline: null, gc: null, wind: []
+        };
+        
+        let charts = { alt: null, fuel: null, val: null };
+
+        // UI Setup
+        document.getElementById('btnStart').addEventListener('click', () => {
+            document.getElementById('titleScreen').classList.add('hidden');
+            document.getElementById('sidebar').classList.remove('hidden');
+            
+            // Fly to India
+            viewer.camera.flyTo({
+                destination: Cesium.Cartesian3.fromDegrees(78.9629, 20.5937, 5000000),
+                duration: 2
+            });
+            
+            initData();
+        });
+        
+        document.getElementById('helpBtn').addEventListener('click', () => {
+            document.getElementById('helpPanel').classList.toggle('hidden');
+        });
+        
+        document.getElementById('radiusSlider').addEventListener('input', (e) => {
+            document.getElementById('radiusVal').innerText = e.target.value;
+        });
+
+        // Tabs
+        document.querySelectorAll('.tab').forEach(t => {
+            t.addEventListener('click', (e) => {
+                document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(x => x.classList.add('hidden'));
+                e.target.classList.add('active');
+                document.getElementById(e.target.dataset.tab).classList.remove('hidden');
+            });
+        });
+
+        // Init Data
+        async function initData() {
+            try {
+                const [aptRes, zoneRes, windRes] = await Promise.all([
+                    fetch('/airports'), fetch('/restricted-zones'), fetch('/wind-field')
+                ]);
+                const airports = await aptRes.json();
+                builtInZones = await zoneRes.json();
+                windField = await windRes.json();
+                
+                const originSel = document.getElementById('origin');
+                const destSel = document.getElementById('destination');
+                airports.sort((a,b) => a.name.localeCompare(b.name)).forEach(apt => {
+                    const opt = new Option(`${apt.name} (${apt.ident})`, apt.ident);
+                    originSel.add(opt.cloneNode(true));
+                    destSel.add(opt);
+                });
+                
+                // Draw built-in zones
+                builtInZones.forEach(z => {
+                    viewer.entities.add({
+                        position: Cesium.Cartesian3.fromDegrees(z.center_lon, z.center_lat),
+                        ellipse: {
+                            semiMinorAxis: z.radius_km * 1000,
+                            semiMajorAxis: z.radius_km * 1000,
+                            material: Cesium.Color.RED.withAlpha(0.2),
+                            outline: true, outlineColor: Cesium.Color.RED
+                        }
+                    });
+                });
+                
+                setupCustomZoneClick();
+            } catch (e) {
+                console.error("Init error", e);
+            }
+        }
+        
+        // Custom Zones Interaction
+        function setupCustomZoneClick() {
+            const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+            handler.setInputAction((click) => {
+                const earthPosition = viewer.scene.camera.pickEllipsoid(click.position, viewer.scene.globe.ellipsoid);
+                if (earthPosition && customZones.length < 5) {
+                    const cartographic = Cesium.Cartographic.fromCartesian(earthPosition);
+                    const lon = Cesium.Math.toDegrees(cartographic.longitude);
+                    const lat = Cesium.Math.toDegrees(cartographic.latitude);
+                    const radius = parseFloat(document.getElementById('radiusSlider').value);
+                    
+                    customZones.push({ lat, lon, radius });
+                    
+                    entities.customZones.push(viewer.entities.add({
+                        position: Cesium.Cartesian3.fromDegrees(lon, lat),
+                        ellipse: {
+                            semiMinorAxis: radius * 1000,
+                            semiMajorAxis: radius * 1000,
+                            material: Cesium.Color.ORANGE.withAlpha(0.3),
+                            outline: true, outlineColor: Cesium.Color.ORANGE
+                        }
+                    }));
+                    
+                    if (routeData) findRoute(); // Auto re-plan
+                }
+            }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+        }
+        
+        document.getElementById('btnClearZones').addEventListener('click', () => {
+            customZones = [];
+            entities.customZones.forEach(e => viewer.entities.remove(e));
+            entities.customZones = [];
+            if (routeData) findRoute();
+        });
+
+        // Toggles
+        ['togWind', 'togZones', 'togFuel'].forEach(id => {
+            document.getElementById(id).addEventListener('change', () => { if(routeData) findRoute(); });
+        });
+        
+        document.getElementById('ovlWind').addEventListener('change', (e) => {
+            if(e.target.checked) drawWindField(); else clearWindField();
+        });
+        
+        document.getElementById('ovlBaseline').addEventListener('change', (e) => {
+            if (entities.baseline) entities.baseline.show = e.target.checked;
+        });
+        
+        document.getElementById('ovlGC').addEventListener('change', (e) => {
+            if (entities.gc) entities.gc.show = e.target.checked;
+        });
+
+        // Search Action
+        document.getElementById('btnFindRoute').addEventListener('click', findRoute);
+
+        async function findRoute() {
+            const origin = document.getElementById('origin').value;
+            const dest = document.getElementById('destination').value;
+            if (!origin || !dest) return;
+            
+            const wind = document.getElementById('togWind').checked;
+            const zones = document.getElementById('togZones').checked;
+            const fuel = document.getElementById('togFuel').checked;
+            
+            const czParam = customZones.map(z => `${z.lat},${z.lon},${z.radius}`).join(';');
+            
+            clearMap();
+            document.getElementById('errorMsg').innerText = '';
+            document.getElementById('loading').classList.remove('hidden');
+            document.getElementById('resultsDrawer').classList.remove('open');
+            document.getElementById('hud').classList.add('hidden');
+            document.getElementById('searchConsole').classList.add('hidden');
+            
+            try {
+                let url = `/route?origin=${origin}&destination=${dest}&wind=${wind}&zones=${zones}&fuel_limit=${fuel}`;
+                if (czParam) url += `&custom_zones=${czParam}`;
+                
+                const res = await fetch(url);
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.detail || "Route blocked or not found.");
+                }
+                
+                routeData = await res.json();
+                document.getElementById('loading').classList.add('hidden');
+                
+                playTrace(routeData.trace);
+                
+            } catch (e) {
+                document.getElementById('loading').classList.add('hidden');
+                document.getElementById('errorMsg').innerText = e.message;
+            }
+        }
+
+        // Trace Replay
+        function playTrace(trace) {
+            document.getElementById('searchConsole').classList.remove('hidden');
+            
+            let i = 0;
+            let skip = false;
+            
+            document.getElementById('btnSkip').onclick = () => { skip = true; };
+            
+            const tick = () => {
+                if (i >= trace.length) {
+                    finishTrace();
+                    return;
+                }
+                
+                const speed = parseFloat(document.getElementById('scSpeed').value);
+                const stepsPerFrame = skip ? trace.length : Math.max(1, Math.floor(speed));
+                
+                for(let k=0; k<stepsPerFrame && i < trace.length; k++, i++) {
+                    const node = trace[i];
+                    
+                    // UI Update
+                    document.getElementById('scStep').innerText = `${i+1} / ${trace.length}`;
+                    document.getElementById('scNode').innerText = node.name;
+                    document.getElementById('scG').innerText = node.g_km.toFixed(1);
+                    document.getElementById('scH').innerText = node.h_km.toFixed(1);
+                    document.getElementById('scF').innerText = node.f_km.toFixed(1);
+                    document.getElementById('scFrontier').innerText = node.frontier_size;
+                    
+                    // Draw node
+                    entities.trace.push(viewer.entities.add({
+                        position: Cesium.Cartesian3.fromDegrees(node.lon, node.lat),
+                        point: { pixelSize: 4, color: Cesium.Color.ORANGE }
+                    }));
+                    
+                    if (node.parent_lat !== null) {
+                        entities.trace.push(viewer.entities.add({
+                            polyline: {
+                                positions: Cesium.Cartesian3.fromDegreesArray([node.lon, node.lat, node.parent_lon, node.parent_lat]),
+                                width: 1,
+                                material: Cesium.Color.ORANGE.withAlpha(0.3)
+                            }
+                        }));
+                    }
+                }
+                
+                if (!skip) requestAnimationFrame(tick);
+                else tick();
+            };
+            
+            requestAnimationFrame(tick);
+        }
+
+        function finishTrace() {
+            document.getElementById('searchConsole').classList.add('hidden');
+            
+            // Dim trace
+            entities.trace.forEach(e => {
+                if(e.point) e.point.color = Cesium.Color.GRAY.withAlpha(0.3);
+                if(e.polyline) e.polyline.material = Cesium.Color.GRAY.withAlpha(0.1);
+            });
+            
+            drawFinalRoute();
+            updateResultsDrawer();
+            document.getElementById('resultsDrawer').classList.add('open');
+            document.getElementById('hud').classList.remove('hidden');
+        }
+
+        function drawFinalRoute() {
+            const pts = routeData.points;
+            const flat = [];
+            pts.forEach(p => flat.push(p[0], p[1], p[2]));
+            
+            const positions = Cesium.Cartesian3.fromDegreesArrayHeights(flat);
+            
+            entities.route = viewer.entities.add({
+                polyline: {
+                    positions: positions,
+                    width: 5,
+                    material: new Cesium.PolylineGlowMaterialProperty({
+                        glowPower: 0.3,
+                        color: Cesium.Color.CYAN
+                    })
+                }
+            });
+            
+            entities.wall = viewer.entities.add({
+                wall: {
+                    positions: positions,
+                    material: Cesium.Color.CYAN.withAlpha(0.1)
+                }
+            });
+            
+            // Pins
+            const origin = pts[0];
+            const dest = pts[pts.length-1];
+            entities.pins.push(viewer.entities.add({
+                position: Cesium.Cartesian3.fromDegrees(origin[0], origin[1], origin[2]),
+                billboard: { image: createPin('Origin', '#00d2ff'), verticalOrigin: Cesium.VerticalOrigin.BOTTOM }
+            }));
+            entities.pins.push(viewer.entities.add({
+                position: Cesium.Cartesian3.fromDegrees(dest[0], dest[1], dest[2]),
+                billboard: { image: createPin('Dest', '#00e676'), verticalOrigin: Cesium.VerticalOrigin.BOTTOM }
+            }));
+            
+            // Baseline & GC
+            if (routeData.baseline) {
+                const bflat = [];
+                routeData.baseline.points.forEach(p => bflat.push(p[0], p[1], p[2]));
+                entities.baseline = viewer.entities.add({
+                    polyline: {
+                        positions: Cesium.Cartesian3.fromDegreesArrayHeights(bflat),
+                        width: 3,
+                        material: new Cesium.PolylineDashMaterialProperty({ color: Cesium.Color.YELLOW })
+                    },
+                    show: document.getElementById('ovlBaseline').checked
+                });
+            }
+            
+            entities.gc = viewer.entities.add({
+                polyline: {
+                    positions: Cesium.Cartesian3.fromDegreesArray([origin[0], origin[1], dest[0], dest[1]]),
+                    width: 2,
+                    material: new Cesium.PolylineDashMaterialProperty({ color: Cesium.Color.WHITE.withAlpha(0.5) })
+                },
+                show: document.getElementById('ovlGC').checked
+            });
+            
+            // Camera
+            viewer.flyTo(entities.route, {
+                offset: new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(-45), 2000000)
+            });
+            
+            animateAircraft(pts);
+        }
+        
+        function createPin(text, color) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 100; canvas.height = 40;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = color;
+            ctx.fillRect(0,0,100,25);
+            ctx.fillStyle = 'black';
+            ctx.font = 'bold 14px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(text, 50, 18);
+            ctx.beginPath();
+            ctx.moveTo(40, 25); ctx.lineTo(60, 25); ctx.lineTo(50, 40); ctx.fill();
+            return canvas.toDataURL();
+        }
+
+        function animateAircraft(points) {
+            const posProp = new Cesium.SampledPositionProperty();
+            const start = Cesium.JulianDate.fromDate(new Date());
+            let currTime = start;
+            
+            const speedMs = 850 * (1000/3600); // 850 km/h
+            
+            for(let i=0; i<points.length; i++) {
+                const pos = Cesium.Cartesian3.fromDegrees(points[i][0], points[i][1], points[i][2]);
+                if(i>0) {
+                    const prev = Cesium.Cartesian3.fromDegrees(points[i-1][0], points[i-1][1], points[i-1][2]);
+                    const dist = Cesium.Cartesian3.distance(prev, pos);
+                    currTime = Cesium.JulianDate.addSeconds(currTime, dist/speedMs, new Cesium.JulianDate());
+                }
+                posProp.addSample(currTime, pos);
+            }
+            
+            viewer.clock.startTime = start.clone();
+            viewer.clock.stopTime = currTime.clone();
+            viewer.clock.currentTime = start.clone();
+            viewer.clock.clockRange = Cesium.ClockRange.LOOP_STOP;
+            viewer.clock.multiplier = 15;
+            
+            entities.aircraft = viewer.entities.add({
+                availability: new Cesium.TimeIntervalCollection([new Cesium.TimeInterval({start, stop: currTime})]),
+                position: posProp,
+                orientation: new Cesium.VelocityOrientationProperty(posProp),
+                model: {
+                    uri: 'https://assets.cesium.com/models/CesiumAir/Cesium_Air.glb',
+                    minimumPixelSize: 64
+                }
+            });
+            
+            // HUD Update Event
+            viewer.scene.preRender.addEventListener(updateHUD);
+        }
+
+        function updateHUD() {
+            if(!routeData || !entities.aircraft) return;
+            const time = viewer.clock.currentTime;
+            const pos = entities.aircraft.position.getValue(time);
+            if(!pos) return;
+            
+            const carto = Cesium.Cartographic.fromCartesian(pos);
+            document.getElementById('hudAlt').innerText = carto.height.toFixed(0);
+            
+            // Interpolate fuel
+            const pct = Cesium.JulianDate.secondsDifference(time, viewer.clock.startTime) / 
+                        Cesium.JulianDate.secondsDifference(viewer.clock.stopTime, viewer.clock.startTime);
+            const fuel = 15000 - (routeData.fuel_kg * pct);
+            document.getElementById('hudFuel').innerText = Math.max(0, fuel).toFixed(0);
+        }
+
+        function updateResultsDrawer() {
+            document.getElementById('resDist').innerText = routeData.total_distance_km.toFixed(0);
+            document.getElementById('resEff').innerText = routeData.effective_km.toFixed(0);
+            document.getElementById('resTime').innerText = routeData.estimated_time_min.toFixed(0);
+            document.getElementById('resFuel').innerText = routeData.fuel_kg.toFixed(0);
+            document.getElementById('resNodes').innerText = routeData.nodes_expanded;
+            document.getElementById('resEffPct').innerText = routeData.route_efficiency_pct.toFixed(1);
+            
+            if (routeData.baseline) {
+                const save = (routeData.baseline.effective_km - routeData.effective_km) / routeData.baseline.effective_km * 100;
+                document.getElementById('resWindSave').innerText = save.toFixed(2) + '%';
+            } else {
+                document.getElementById('resWindSave').innerText = 'N/A (Wind Off)';
+            }
+            
+            // Legs Table
+            const tbody = document.querySelector('#legsTable tbody');
+            tbody.innerHTML = '';
+            routeData.legs.forEach(leg => {
+                const hw = leg.headwind_kmh;
+                const cl = hw > 0 ? 'text-red' : 'text-green';
+                const hwTxt = hw > 0 ? `+${hw.toFixed(1)} H/W` : `${Math.abs(hw).toFixed(1)} T/W`;
+                
+                tbody.innerHTML += `<tr>
+                    <td>${leg.from_name.substring(0,6)} &rarr; ${leg.to_name.substring(0,6)}</td>
+                    <td>${leg.airway_name}</td>
+                    <td>${leg.distance_km.toFixed(0)}</td>
+                    <td class="${cl}">${hwTxt}</td>
+                </tr>`;
+            });
+            
+            // Charts
+            const d = routeData.legs.map(l => l.cumulative_km);
+            const a = routeData.legs.map(l => l.altitude_end_m);
+            const f = routeData.legs.map(l => l.fuel_remaining_kg);
+            
+            d.unshift(0); a.unshift(routeData.legs[0]?.altitude_start_m || 0); f.unshift(15000);
+            
+            if(charts.alt) charts.alt.destroy();
+            charts.alt = new Chart(document.getElementById('altChart'), {
+                type: 'line',
+                data: { labels: d.map(x=>x.toFixed(0)), datasets: [{ label: 'Altitude (m)', data: a, borderColor: '#00d2ff', tension: 0.2, fill: true, backgroundColor: 'rgba(0, 210, 255, 0.1)' }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: 'white' } } }, scales: { x: { ticks: { color: '#a0a0a0' } }, y: { ticks: { color: '#a0a0a0' } } } }
+            });
+            
+            if(charts.fuel) charts.fuel.destroy();
+            charts.fuel = new Chart(document.getElementById('fuelChart'), {
+                type: 'line',
+                data: { labels: d.map(x=>x.toFixed(0)), datasets: [{ label: 'Fuel Remaining (kg)', data: f, borderColor: '#00e676', tension: 0.2 }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: 'white' } } }, scales: { x: { ticks: { color: '#a0a0a0' } }, y: { ticks: { color: '#a0a0a0' } } } }
+            });
+        }
+        
+        // Validation
+        document.getElementById('btnRunValidation').addEventListener('click', async () => {
+            const origin = document.getElementById('origin').value;
+            const dest = document.getElementById('destination').value;
+            
+            const wind = document.getElementById('togWind').checked;
+            const zones = document.getElementById('togZones').checked;
+            const fuel = document.getElementById('togFuel').checked;
+            const czParam = customZones.map(z => `${z.lat},${z.lon},${z.radius}`).join(';');
+            
+            let url = `/validate?origin=${origin}&destination=${dest}&wind=${wind}&zones=${zones}&fuel_limit=${fuel}`;
+            if (czParam) url += `&custom_zones=${czParam}`;
+            
+            const res = await fetch(url);
+            const data = await res.json();
+            
+            if (data.n_flights === 0) {
+                alert(data.message);
+                return;
+            }
+            
+            document.getElementById('valResults').classList.remove('hidden');
+            document.getElementById('valEst').innerText = data.computed_time_min.toFixed(1);
+            document.getElementById('valReal').innerText = data.real_avg_duration_min.toFixed(1);
+            document.getElementById('valErr').innerText = data.time_error_pct.toFixed(1) + '%';
+            
+            const labels = data.flights.map((_, i) => `F${i+1}`);
+            const durations = data.flights.map(f => f.duration_min);
+            
+            if(charts.val) charts.val.destroy();
+            charts.val = new Chart(document.getElementById('valChart'), {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: 'Real Duration', data: durations, backgroundColor: 'rgba(0,230,118,0.6)' },
+                        { label: 'A* Estimate', data: Array(labels.length).fill(data.computed_time_min), type: 'line', borderColor: '#00d2ff', borderWidth: 2, pointRadius: 0 }
+                    ]
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: 'white' } } }, scales: { x: { ticks: { color: '#a0a0a0' } }, y: { ticks: { color: '#a0a0a0' } } } }
+            });
+        });
+
+        // Wind Overlay
+        function drawWindField() {
+            if(entities.wind.length > 0) return;
+            windField.forEach(w => {
+                entities.wind.push(viewer.entities.add({
+                    position: Cesium.Cartesian3.fromDegrees(w.lon, w.lat),
+                    polyline: {
+                        positions: Cesium.Cartesian3.fromDegreesArray([w.lon, w.lat, w.lon + Math.cos(Cesium.Math.toRadians(w.from_deg+180))*0.5, w.lat + Math.sin(Cesium.Math.toRadians(w.from_deg+180))*0.5]),
+                        width: 2,
+                        material: new Cesium.PolylineArrowMaterialProperty(w.speed_kmh > 50 ? Cesium.Color.RED : Cesium.Color.YELLOW)
+                    }
+                }));
+            });
+        }
+        function clearWindField() {
+            entities.wind.forEach(e => viewer.entities.remove(e));
+            entities.wind = [];
+        }
+
+        function clearMap() {
+            entities.trace.forEach(e => viewer.entities.remove(e)); entities.trace = [];
+            entities.pins.forEach(e => viewer.entities.remove(e)); entities.pins = [];
+            if(entities.route) { viewer.entities.remove(entities.route); entities.route = null; }
+            if(entities.wall) { viewer.entities.remove(entities.wall); entities.wall = null; }
+            if(entities.aircraft) { viewer.entities.remove(entities.aircraft); entities.aircraft = null; }
+            if(entities.baseline) { viewer.entities.remove(entities.baseline); entities.baseline = null; }
+            if(entities.gc) { viewer.entities.remove(entities.gc); entities.gc = null; }
+            viewer.scene.preRender.removeEventListener(updateHUD);
+        }
+
+        // Demos
+        document.getElementById('demo1').addEventListener('click', () => {
+            document.getElementById('origin').value = 'VIDP';
+            document.getElementById('destination').value = 'VABB';
+            document.getElementById('togWind').checked = true;
+            document.getElementById('ovlBaseline').checked = true;
+            findRoute();
+        });
+        document.getElementById('demo2').addEventListener('click', () => {
+            document.getElementById('origin').value = 'VEBS';
+            document.getElementById('destination').value = 'VOMM';
+            document.getElementById('togZones').checked = true;
+            findRoute();
+        });
+        document.getElementById('demo3').addEventListener('click', () => {
+            document.getElementById('origin').value = 'VIDP';
+            document.getElementById('destination').value = 'VOBL';
+            customZones = [{ lat: 22, lon: 77, radius: 150 }];
+            entities.customZones.push(viewer.entities.add({
+                position: Cesium.Cartesian3.fromDegrees(77, 22),
+                ellipse: { semiMinorAxis: 150000, semiMajorAxis: 150000, material: Cesium.Color.ORANGE.withAlpha(0.3) }
+            }));
+            findRoute();
+        });
+
+    </script>
+</body>
+</html>

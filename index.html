@@ -1,0 +1,1088 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flight Route Planner - Mission Control</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.118/Build/Cesium/Cesium.js"></script>
+    <link href="https://cesium.com/downloads/cesiumjs/releases/1.118/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+    <style>
+        :root {
+            --navy: #080C16;
+            --glass: rgba(14, 20, 36, 0.72);
+            --border: rgba(255, 255, 255, 0.08);
+            --cyan: #22D3EE;
+            --amber: #FFD60A;
+            --violet: #A78BFA;
+            --rose: #FB7185;
+            --emerald: #34D399;
+            --text: #E6EAF2;
+            --muted: #8B95A8;
+            --bg-input: rgba(255,255,255,0.05);
+            --bg-hover: rgba(255,255,255,0.1);
+        }
+
+        * { box-sizing: border-box; }
+        body {
+            margin: 0; padding: 0; overflow: hidden;
+            font-family: 'Inter', sans-serif; color: var(--text);
+            background: var(--navy); font-size: 14px;
+        }
+
+        #cesiumContainer { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1; }
+
+        .hidden { display: none !important; opacity: 0; pointer-events: none; }
+        .fade-in { animation: fadeIn 0.3s forwards; }
+        .slide-in-right { animation: slideInRight 0.4s cubic-bezier(0.1, 0.9, 0.2, 1) forwards; }
+        
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideInRight { from { transform: translateX(20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+        /* Typography */
+        h1, h2, h3, p { margin: 0; }
+        .text-lg { font-size: 16px; font-weight: 600; }
+        .text-xl { font-size: 20px; font-weight: 700; }
+        .text-2xl { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
+        .text-muted { color: var(--muted); }
+        .text-sm { font-size: 12px; }
+
+        /* Components */
+        .glass-panel {
+            background: var(--glass);
+            border: 1px solid var(--border);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-radius: 16px;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+        }
+
+        button {
+            font-family: inherit; color: var(--text); cursor: pointer;
+            transition: all 0.2s; border: none; outline: none;
+            display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #0ea5e9, var(--cyan));
+            color: #000; font-weight: 600; padding: 12px 16px;
+            border-radius: 8px; width: 100%; font-size: 14px;
+        }
+        .btn-primary:hover { filter: brightness(1.1); transform: translateY(-1px); }
+        .btn-primary:disabled { opacity: 0.5; pointer-events: none; filter: grayscale(1); }
+
+        .btn-ghost { background: transparent; border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; font-size: 13px; }
+        .btn-ghost:hover { background: var(--bg-hover); }
+
+        .btn-icon { background: transparent; padding: 6px; border-radius: 6px; }
+        .btn-icon:hover { background: var(--bg-hover); }
+
+        /* Layout */
+        #topBar {
+            position: absolute; top: 0; left: 0; width: 100%; height: 56px;
+            z-index: 50; display: flex; align-items: center; justify-content: space-between;
+            padding: 0 24px; background: var(--glass); border-bottom: 1px solid var(--border);
+            backdrop-filter: blur(16px);
+        }
+
+        #leftCard { position: absolute; top: 80px; left: 24px; width: 320px; padding: 20px; z-index: 10; }
+        #rightCard { position: absolute; top: 80px; right: 24px; width: 340px; padding: 20px; z-index: 10; max-height: calc(100vh - 100px); overflow-y: auto; overflow-x: hidden; }
+
+        /* Search Dropdowns */
+        .dropdown { position: relative; margin-bottom: 12px; }
+        .dropdown-input {
+            width: 100%; background: var(--bg-input); border: 1px solid var(--border);
+            color: var(--text); padding: 10px 12px; border-radius: 8px; font-size: 14px; outline: none;
+        }
+        .dropdown-input:focus { border-color: var(--cyan); }
+        .dropdown-list {
+            position: absolute; top: 100%; left: 0; right: 0; max-height: 200px;
+            overflow-y: auto; background: #0f172a; border: 1px solid var(--border);
+            border-radius: 8px; z-index: 100; margin-top: 4px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        }
+        .dropdown-item { padding: 8px 12px; cursor: pointer; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--border); }
+        .dropdown-item:hover { background: var(--bg-hover); }
+        .icao-chip { background: var(--bg-input); font-size: 10px; padding: 2px 6px; border-radius: 4px; color: var(--cyan); font-weight: 600; letter-spacing: 0.5px; }
+
+        /* Toggles */
+        .pill-toggles { display: flex; gap: 8px; margin: 16px 0; }
+        .pill-toggle {
+            flex: 1; padding: 6px 0; text-align: center; background: var(--bg-input);
+            border: 1px solid var(--border); border-radius: 16px; cursor: pointer;
+            font-size: 12px; transition: 0.2s; user-select: none;
+        }
+        .pill-toggle.active { background: rgba(34,211,238,0.15); border-color: var(--cyan); color: var(--cyan); font-weight: 600; }
+
+        /* Result Stats */
+        .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+        .stat-card { background: rgba(0,0,0,0.2); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+        .stat-val { color: var(--cyan); margin-top: 4px; }
+        
+        .insight-line { font-size: 13px; color: var(--emerald); background: rgba(52,211,153,0.1); padding: 8px 12px; border-radius: 8px; margin-bottom: 16px; display: flex; gap: 8px; align-items: center; }
+
+        /* Accordion */
+        details { background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 16px; }
+        summary { padding: 12px; cursor: pointer; font-weight: 600; outline: none; user-select: none; }
+        .scroll-table { max-height: 240px; overflow-y: auto; border-top: 1px solid var(--border); }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
+        th, td { padding: 8px 12px; border-bottom: 1px solid var(--border); }
+        th { color: var(--muted); font-weight: 500; position: sticky; top: 0; background: #0f172a; }
+
+        /* Heuristic Card */
+        .heuristic-card { border: 1px solid var(--border); background: rgba(0,0,0,0.2); border-radius: 12px; padding: 16px; margin-top: 16px; }
+        .bar-row { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+        .bar-lbl { width: 100px; font-size: 12px; color: var(--muted); }
+        .bar-track { flex: 1; height: 8px; background: rgba(255,255,255,0.05); border-radius: 4px; position: relative; }
+        .bar-fill { height: 100%; border-radius: 4px; position: absolute; left: 0; top: 0; transition: width 0.5s ease-out; }
+        .bar-val { width: 40px; text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; }
+        
+        /* Modals/Overlays */
+        #splash { position: fixed; inset: 0; background: rgba(8,12,22,0.85); backdrop-filter: blur(10px); z-index: 100; display: flex; justify-content: center; align-items: center; }
+        .splash-card { text-align: center; max-width: 500px; padding: 40px; }
+        
+        .pill-overlay { position: absolute; z-index: 40; background: var(--glass); border: 1px solid var(--border); backdrop-filter: blur(16px); padding: 8px 16px; border-radius: 20px; font-size: 13px; font-weight: 500; color: var(--text); display: flex; gap: 12px; align-items: center; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+        
+        #searchCaption { bottom: 24px; left: 50%; transform: translateX(-50%); }
+        #toast { top: 72px; left: 50%; transform: translateX(-50%); background: rgba(251,113,133,0.1); border-color: var(--rose); color: var(--rose); }
+        #addZoneHint { top: 72px; left: 50%; transform: translateX(-50%); border-color: var(--rose); }
+        
+        #flightHUD { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 30; padding: 12px 24px; display: flex; gap: 32px; border-radius: 12px; }
+        .hud-stat { display: flex; flex-direction: column; align-items: center; }
+        .hud-lbl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 2px; }
+        .hud-val { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+        
+        #layersPopover { position: absolute; top: 64px; right: 100px; width: 220px; padding: 16px; z-index: 60; display: flex; flex-direction: column; gap: 12px; }
+        
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }
+
+        /* Util icons */
+        .svg-icon { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    
+        /* ===== v2 additions ===== */
+        .route-box { display: flex; gap: 10px; align-items: stretch; margin-bottom: 14px; }
+        .route-fields { flex: 1; min-width: 0; }
+        .route-fields .dropdown:last-child { margin-bottom: 0; }
+        .swap-col { width: 36px; display: flex; align-items: center; justify-content: center; position: relative; }
+        .swap-col::before { content: ''; position: absolute; top: 20px; bottom: 20px; left: 50%; border-left: 2px dotted rgba(255,255,255,0.28); }
+        #btnSwap { position: relative; z-index: 2; width: 36px; height: 36px; padding: 0; border-radius: 50%; background: #121a2e; border: 1px solid var(--border); color: var(--cyan); }
+        #btnSwap:hover { background: #1a2542; transform: rotate(180deg); }
+        .dropdown-input { padding-right: 62px; text-overflow: ellipsis; }
+        .inp-chip { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); pointer-events: none; }
+        #btnAddZone.active { border-color: var(--rose); color: var(--rose); }
+
+        .demo-row { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+        .demo-lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+        .demo-chips { display: flex; gap: 6px; }
+        .demo-chip { flex: 1; font-size: 12px; padding: 7px 4px; border-radius: 16px; background: var(--bg-input); border: 1px solid var(--border); white-space: nowrap; }
+        .demo-chip:hover { border-color: var(--cyan); color: var(--cyan); }
+        .demo-chip:disabled { opacity: .5; pointer-events: none; }
+
+        #toast { top: 120px; }
+        #demoCaption { top: 72px; left: 50%; transform: translateX(-50%); max-width: min(680px, 90vw); border-color: rgba(34,211,238,0.5); line-height: 1.4; }
+
+        #legend { position: absolute; left: 24px; bottom: 40px; z-index: 30; padding: 10px 14px; display: flex; gap: 14px; font-size: 12px; border-radius: 12px; flex-wrap: wrap; max-width: 420px; }
+        #legend span { display: inline-flex; align-items: center; gap: 6px; }
+        #legend i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+
+        #flightHUD { padding: 12px 20px 16px; gap: 24px; align-items: center; overflow: hidden; }
+        .hud-val small { font-size: 11px; font-weight: 500; color: var(--muted); }
+        .hud-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(255,255,255,0.08); }
+        #hudBar { height: 100%; width: 0%; background: var(--cyan); }
+        #btnFollow { white-space: nowrap; }
+        #btnFollow.active { border-color: var(--cyan); color: var(--cyan); }
+</style>
+</head>
+<body>
+    <div id="cesiumContainer"></div>
+
+    <div id="splash">
+        <div class="glass-panel splash-card fade-in">
+            <h1 class="text-2xl" style="color: var(--cyan); margin-bottom: 8px;">Flight Route Planner</h1>
+            <p class="text-muted" style="margin-bottom: 32px;">A* search with real-world constraints</p>
+            <div style="font-size: 14px; line-height: 1.6; margin-bottom: 32px;">
+                <p>Debi Prasad Samal (24BIT0451) · Sagar Sahu (24BIT0501)</p>
+                <p>Guide: Dr. Tapan Kumar Das</p>
+                <p class="text-muted">BITE308L - Artificial Intelligence Lab</p>
+            </div>
+            <button id="btnStartSplash" class="btn-primary" style="width: 200px;">Start Application</button>
+        </div>
+    </div>
+
+    <div id="topBar">
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <svg class="svg-icon" style="color:var(--cyan); width:24px; height:24px;" viewBox="0 0 24 24"><path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.2-1.1.6L2.5 9l8.1 4.5-3.1 3.1-3.2-.8c-.4-.1-.8.1-1 .5L2 17.5l4 1 1 4 .9-1.3c.3-.3.6-.7.5-1.1l-.8-3.2 3.1-3.1 4.5 8.1c.3.5.7.9 1.2.7l2.2-1.2c.4-.2.7-.6.6-1.1z"/></svg>
+            <span class="text-lg">Flight Route Planner</span>
+            <span class="text-sm text-muted" style="margin-left: 8px; border-left: 1px solid var(--border); padding-left: 12px;">A* search with real-world constraints</span>
+        </div>
+        <div style="display: flex; gap: 8px;">
+            <button id="btnReset" class="btn-ghost">
+                <svg class="svg-icon" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                Reset
+            </button>
+            <button id="btnToggleLayers" class="btn-ghost">
+                <svg class="svg-icon" viewBox="0 0 24 24"><path d="m12 2 10 5-10 5L2 7l10-5Z"/><path d="m2 12 10 5 10-5"/><path d="m2 17 10 5 10-5"/></svg>
+                Layers
+            </button>
+        </div>
+    </div>
+
+    <div id="layersPopover" class="glass-panel hidden fade-in">
+        <div style="display:flex; justify-content:space-between; align-items:center;"><span>Explored nodes</span><input type="checkbox" id="layExplored" checked></div>
+        <div style="display:flex; justify-content:space-between; align-items:center;"><span>Wind arrows</span><input type="checkbox" id="layWind"></div>
+        <div style="display:flex; justify-content:space-between; align-items:center;"><span>Distance route</span><input type="checkbox" id="layBaseline"></div>
+        <div style="display:flex; justify-content:space-between; align-items:center;"><span>Great-circle line</span><input type="checkbox" id="layGC"></div>
+        <div style="display:flex; justify-content:space-between; align-items:center;"><span>Follow aircraft</span><input type="checkbox" id="layFollow"></div>
+    </div>
+
+    <div id="leftCard" class="glass-panel slide-in-right" style="animation-direction: reverse;">
+        <h2 class="text-lg" style="margin-bottom: 16px;">Plan a flight</h2>
+
+        <div class="route-box">
+            <div class="route-fields">
+                <div class="dropdown">
+                    <input type="text" id="inpOrigin" class="dropdown-input" placeholder="From (origin)" autocomplete="off">
+                    <span id="chipOrigin" class="icao-chip inp-chip hidden"></span>
+                    <div id="listOrigin" class="dropdown-list hidden"></div>
+                </div>
+                <div class="dropdown">
+                    <input type="text" id="inpDest" class="dropdown-input" placeholder="To (destination)" autocomplete="off">
+                    <span id="chipDest" class="icao-chip inp-chip hidden"></span>
+                    <div id="listDest" class="dropdown-list hidden"></div>
+                </div>
+            </div>
+            <div class="swap-col">
+                <button id="btnSwap" title="Swap origin and destination"><svg class="svg-icon" viewBox="0 0 24 24"><path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/></svg></button>
+            </div>
+        </div>
+
+        <div class="pill-toggles">
+            <div class="pill-toggle active" id="togWind">Wind</div>
+            <div class="pill-toggle active" id="togZones">No-fly zones</div>
+            <div class="pill-toggle active" id="togFuel">Fuel limit</div>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+            <button id="btnAddZone" class="btn-ghost" style="width:auto;"><svg class="svg-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v8"/><path d="M8 12h8"/></svg> Add no-fly zone</button>
+            <a href="#" id="btnClearZones" class="text-sm text-muted hidden">Clear zones</a>
+        </div>
+
+        <button id="btnFindRoute" class="btn-primary" disabled>Find route</button>
+
+        <div class="demo-row">
+            <div class="demo-lbl">Quick demos</div>
+            <div class="demo-chips">
+                <button class="demo-chip" data-demo="wind">Wind effect</button>
+                <button class="demo-chip" data-demo="zone">Dodge a zone</button>
+                <button class="demo-chip" data-demo="custom">Custom zone</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="rightCard" class="glass-panel hidden">
+        <h2 class="text-lg" style="margin-bottom: 16px;">Result</h2>
+
+        <div class="stat-grid">
+            <div class="stat-card">
+                <div class="text-sm text-muted">Distance</div>
+                <div class="text-2xl stat-val"><span id="valDist">-</span><span class="text-sm" style="color:var(--text); font-weight:normal;"> km</span></div>
+            </div>
+            <div class="stat-card">
+                <div class="text-sm text-muted">Flight time</div>
+                <div class="text-2xl stat-val"><span id="valTime">-</span><span class="text-sm" style="color:var(--text); font-weight:normal;"> min</span></div>
+            </div>
+            <div class="stat-card">
+                <div class="text-sm text-muted">Fuel</div>
+                <div class="text-2xl stat-val"><span id="valFuel">-</span><span class="text-sm" style="color:var(--text); font-weight:normal;"> kg</span></div>
+            </div>
+            <div class="stat-card">
+                <div class="text-sm text-muted">Nodes explored</div>
+                <div class="text-2xl stat-val" id="valNodes">-</div>
+            </div>
+        </div>
+
+        <div id="insightWind" class="insight-line hidden">
+            <svg class="svg-icon" viewBox="0 0 24 24" style="flex-shrink:0"><path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2"/><path d="M9.6 4.6A2 2 0 1 1 11 8H2"/><path d="M12.6 19.4A2 2 0 1 0 14 16H2"/></svg>
+            <span id="insightWindTxt"></span>
+        </div>
+
+        <div id="realFlightCard" class="insight-line hidden" style="color:var(--cyan); background:rgba(34,211,238,0.1);">
+            <svg class="svg-icon" viewBox="0 0 24 24" style="flex-shrink:0"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+            <span id="realFlightTxt"></span>
+        </div>
+
+        <details>
+            <summary>Route details</summary>
+            <div class="scroll-table">
+                <table id="legsTable">
+                    <thead><tr><th>Leg</th><th>Airway</th><th>km</th><th>Wind</th></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </details>
+
+        <div class="heuristic-card">
+            <h3 class="text-sm" style="margin-bottom:8px;">Why the heuristic matters</h3>
+            <button id="btnCompare" class="btn-ghost" style="width:100%;">Compare without heuristic</button>
+            <div id="heuResult" class="hidden" style="margin-top:16px;">
+                <p id="heuTitle" class="text-sm" style="margin-bottom:8px;"></p>
+                <div class="bar-row">
+                    <div class="bar-lbl">With heuristic</div>
+                    <div class="bar-track"><div id="barOn" class="bar-fill" style="background:var(--amber); width:0%;"></div></div>
+                    <div class="bar-val" id="valHeuOn">0</div>
+                </div>
+                <div class="bar-row">
+                    <div class="bar-lbl">Without</div>
+                    <div class="bar-track"><div id="barOff" class="bar-fill" style="background:var(--violet); width:0%;"></div></div>
+                    <div class="bar-val" id="valHeuOff">0</div>
+                </div>
+                <div style="text-align:right; margin-top:8px;">
+                    <label style="font-size:12px; display:inline-flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" id="togViolet" checked> Show violet points</label>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Overlays -->
+    <div id="searchCaption" class="pill-overlay hidden">
+        <span id="capText">Step - / - · - · g - · h - · f -</span>
+        <div style="display:flex; gap:4px; margin: 0 8px; border-left:1px solid var(--border); border-right:1px solid var(--border); padding: 0 8px;">
+            <button class="btn-ghost speed-btn active" data-s="1" style="padding:2px 6px;">1x</button>
+            <button class="btn-ghost speed-btn" data-s="2" style="padding:2px 6px;">2x</button>
+            <button class="btn-ghost speed-btn" data-s="4" style="padding:2px 6px;">4x</button>
+        </div>
+        <button id="btnSkip" class="btn-ghost" style="padding:4px 10px;">Skip</button>
+    </div>
+
+    <div id="flightHUD" class="glass-panel hidden">
+        <div class="hud-stat"><span class="hud-lbl">Speed</span><span class="hud-val">850 <small>km/h</small></span></div>
+        <div class="hud-stat"><span class="hud-lbl">Altitude</span><span class="hud-val"><span id="hudAlt">0</span> <small>m</small></span></div>
+        <div class="hud-stat"><span class="hud-lbl">Heading</span><span class="hud-val" id="hudHdg">0°</span></div>
+        <div class="hud-stat"><span class="hud-lbl">Fuel left</span><span class="hud-val"><span id="hudFuel">0</span> <small>kg</small></span></div>
+        <div class="hud-stat"><span class="hud-lbl">Time left</span><span class="hud-val" id="hudEta">-</span></div>
+        <button id="btnFollow" class="btn-ghost">Follow aircraft</button>
+        <div class="hud-bar"><div id="hudBar"></div></div>
+    </div>
+
+    <div id="legend" class="glass-panel hidden">
+        <span><i style="background:var(--amber)"></i>Explored</span>
+        <span><i style="background:var(--cyan)"></i>Final route</span>
+        <span id="legViolet" class="hidden"><i style="background:var(--violet)"></i>No heuristic</span>
+        <span><i style="background:var(--rose)"></i>No-fly zone</span>
+    </div>
+
+    <div id="demoCaption" class="pill-overlay hidden"><span id="demoText"></span></div>
+    <div id="addZoneHint" class="pill-overlay hidden">Click the map to place a zone · Esc to cancel</div>
+    <div id="toast" class="pill-overlay hidden"><span id="toastMsg"></span></div>
+
+    <script>
+        const CESIUM_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJub25jZSI6Ikw2UHRqLWhHeU9QVVBidXoiLCJqdGkiOiJhNGUzMjM5OC0zYzIxLTRiZWMtYTcyNC00OGZjM2VhOWEyMmEiLCJpZCI6NTE5MjAxLCJpc3MiOiJodHRwczovL2FwaS5jZXNpdW0uY29tIiwiYXVkIjoidW5kZWZpbmVkX2RlZmF1bHQiLCJpYXQiOjE3OTE2MTYxMzN9.w23gbgtYOXPYUJCoK_7v2MQfyfrJrpHjK2voaPYp_Yk";
+        Cesium.Ion.defaultAccessToken = CESIUM_TOKEN;
+
+        const viewer = new Cesium.Viewer('cesiumContainer', {
+            baseLayer: false,
+            terrainProvider: Cesium.createWorldTerrainAsync ? undefined : Cesium.createWorldTerrain({ requestVertexNormals: true }),
+            baseLayerPicker: false, geocoder: false, homeButton: false,
+            navigationHelpButton: false, sceneModePicker: false, infoBox: false,
+            animation: false, timeline: false, fullscreenButton: false, selectionIndicator: false
+        });
+
+        if (Cesium.createWorldTerrainAsync) {
+            Cesium.createWorldTerrainAsync({ requestVertexNormals: true }).then(tp => { viewer.terrainProvider = tp; }).catch(() => {});
+        }
+
+        // Dark-ish satellite imagery. createWorldImageryAsync returns a PROVIDER; the layer is what we tint.
+        Cesium.createWorldImageryAsync({ style: Cesium.IonWorldImageryStyle.AERIAL }).then(provider => {
+            const layer = viewer.imageryLayers.addImageryProvider(provider);
+            layer.brightness = 0.9;
+            layer.contrast = 1.1;
+            layer.saturation = 0.7;
+            layer.gamma = 0.9;
+        }).catch(() => {
+            viewer.imageryLayers.addImageryProvider(new Cesium.OpenStreetMapImageryProvider({ url: 'https://tile.openstreetmap.org/' }));
+        });
+
+        viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#050816');
+        viewer.scene.globe.enableLighting = false;   // keeps the map readable at any time of day
+        viewer.scene.fog.enabled = true;
+        viewer.scene.fog.density = 0.0001;
+        viewer.clock.shouldAnimate = false;
+        const HOME_VIEW = () => Cesium.Cartesian3.fromDegrees(78.96, 20.59, 4500000);
+        viewer.camera.setView({ destination: HOME_VIEW() });
+
+        // ---------------- App state ----------------
+        let airports = [];
+        let validationPairs = {};
+        let builtInZones = [];
+        let windField = [];
+
+        const s = {
+            o: null, d: null,
+            w: true, z: true, f: true,
+            cz: [],
+            runId: 0, demoId: 0, speed: 1, skip: false,
+            routeData: null, busy: false,
+            flight: null, following: false, camHdg: 0, routeSphere: null,
+            demoTimer: null,
+            ent: { trace: [], violets: [], final: null, wall: null, pins: [], cz: [], bz: [], base: null, gc: null, wind: [] },
+            mode: 'idle'
+        };
+
+        const $ = id => document.getElementById(id);
+        const hide = id => $(id).classList.add('hidden');
+        const show = id => $(id).classList.remove('hidden');
+        const showToast = msg => { $('toastMsg').innerText = msg; show('toast'); clearTimeout(showToast.t); showToast.t = setTimeout(() => hide('toast'), 4000); };
+        const CC = Cesium.Color.fromCssColorString;
+        const ROSE = '#FB7185';
+
+        // ---------------- Start ----------------
+        $('btnStartSplash').onclick = async () => {
+            hide('splash');
+            $('leftCard').style.animationDirection = 'normal';
+            try {
+                const [aRes, vpRes, zRes, wRes] = await Promise.all([fetch('/airports'), fetch('/validation-pairs'), fetch('/restricted-zones'), fetch('/wind-field')]);
+                airports = await aRes.json();
+                builtInZones = await zRes.json();
+                windField = await wRes.json();
+                const vps = await vpRes.json();
+                vps.forEach(v => { validationPairs[`${v.origin}-${v.destination}`] = v; });
+                airports.sort((a, b) => a.name.localeCompare(b.name));
+
+                builtInZones.forEach(z => {
+                    s.ent.bz.push(viewer.entities.add({
+                        position: Cesium.Cartesian3.fromDegrees(z.center_lon, z.center_lat),
+                        ellipse: { semiMinorAxis: z.radius_km * 1000, semiMajorAxis: z.radius_km * 1000, material: CC(ROSE).withAlpha(0.15), outline: true, outlineColor: CC(ROSE) }
+                    }));
+                });
+            } catch (e) { showToast("Failed to load data."); }
+        };
+
+        // ---------------- Airport pickers ----------------
+        function updateFindBtn() {
+            $('btnFindRoute').disabled = s.busy || !(s.o && s.d && s.o !== s.d);
+        }
+
+        function setAirport(isOrigin, a) {
+            const inp = $(isOrigin ? 'inpOrigin' : 'inpDest');
+            const chip = $(isOrigin ? 'chipOrigin' : 'chipDest');
+            if (a) {
+                inp.value = a.name; chip.textContent = a.ident; chip.classList.remove('hidden');
+                if (isOrigin) s.o = a.ident; else s.d = a.ident;
+            } else {
+                inp.value = ''; chip.classList.add('hidden');
+                if (isOrigin) s.o = null; else s.d = null;
+            }
+            updateFindBtn();
+        }
+        const findAirport = ident => airports.find(a => a.ident === ident);
+
+        function setupDropdown(inpId, listId, isOrigin) {
+            const inp = $(inpId); const lst = $(listId);
+            inp.onfocus = () => { renderList(''); show(listId); };
+            inp.oninput = e => {
+                if (isOrigin ? s.o : s.d) { // user is editing -> selection no longer valid
+                    if (isOrigin) s.o = null; else s.d = null;
+                    $(isOrigin ? 'chipOrigin' : 'chipDest').classList.add('hidden');
+                    updateFindBtn();
+                }
+                renderList(e.target.value.toLowerCase()); show(listId);
+            };
+            document.addEventListener('click', e => { if (e.target !== inp && !lst.contains(e.target)) hide(listId); });
+
+            function renderList(q) {
+                lst.innerHTML = '';
+                airports.filter(a => a.name.toLowerCase().includes(q) || a.ident.toLowerCase().includes(q)).slice(0, 50).forEach(a => {
+                    const div = document.createElement('div');
+                    div.className = 'dropdown-item';
+                    div.innerHTML = `<span class="icao-chip">${a.ident}</span> <span style="font-size:12px">${a.name}</span>`;
+                    div.onclick = () => { setAirport(isOrigin, a); hide(listId); };
+                    lst.appendChild(div);
+                });
+            }
+        }
+        setupDropdown('inpOrigin', 'listOrigin', true);
+        setupDropdown('inpDest', 'listDest', false);
+
+        $('btnSwap').onclick = () => {
+            const a = s.o ? findAirport(s.o) : null, b = s.d ? findAirport(s.d) : null;
+            setAirport(true, b); setAirport(false, a);
+        };
+
+        // ---------------- Toggles ----------------
+        function setToggle(id, on) {
+            $(id).classList.toggle('active', on);
+            if (id === 'togWind') s.w = on;
+            if (id === 'togZones') { s.z = on; s.ent.bz.forEach(e => e.show = on); }
+            if (id === 'togFuel') s.f = on;
+        }
+        ['togWind', 'togZones', 'togFuel'].forEach(id => { $(id).onclick = () => setToggle(id, !$(id).classList.contains('active')); });
+
+        // ---------------- Custom no-fly zones ----------------
+        function addCustomZone(lat, lon, radiusKm) {
+            s.cz.push({ lat, lon, radius: radiusKm });
+            s.ent.cz.push(viewer.entities.add({
+                position: Cesium.Cartesian3.fromDegrees(lon, lat),
+                ellipse: { semiMinorAxis: radiusKm * 1000, semiMajorAxis: radiusKm * 1000, material: CC(ROSE).withAlpha(0.3), outline: true, outlineColor: CC(ROSE) }
+            }));
+            show('btnClearZones');
+        }
+
+        const clickHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+        $('btnAddZone').onclick = () => {
+            if (s.mode === 'addZone') { exitAddZone(); return; }
+            if (s.following) stopFollow(false);
+            s.mode = 'addZone'; show('addZoneHint'); $('btnAddZone').classList.add('active');
+            clickHandler.setInputAction(e => {
+                const ep = viewer.scene.camera.pickEllipsoid(e.position, viewer.scene.globe.ellipsoid);
+                if (!ep) return;
+                if (s.cz.length >= 5) { showToast("Maximum 5 custom zones."); return; }
+                const c = Cesium.Cartographic.fromCartesian(ep);
+                addCustomZone(Cesium.Math.toDegrees(c.latitude), Cesium.Math.toDegrees(c.longitude), 100);
+                if (s.routeData) runSearch(); // re-plan around the new zone
+            }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+        };
+        function exitAddZone() {
+            s.mode = (s.mode === 'addZone') ? 'idle' : s.mode;
+            hide('addZoneHint'); $('btnAddZone').classList.remove('active');
+            clickHandler.removeInputAction(Cesium.ScreenSpaceEventType.LEFT_CLICK);
+        }
+        $('btnClearZones').onclick = (e) => {
+            e.preventDefault();
+            s.cz = []; s.ent.cz.forEach(en => viewer.entities.remove(en)); s.ent.cz = [];
+            hide('btnClearZones');
+            if (s.routeData) runSearch();
+        };
+
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape') {
+                if (s.mode === 'addZone') exitAddZone();
+                else if (s.following) stopFollow(true);
+            }
+            if (e.key === 'Enter' && !$('btnFindRoute').disabled && s.mode === 'idle' && $('splash').classList.contains('hidden')) {
+                runSearch();
+            }
+        });
+
+        // ---------------- Layers ----------------
+        $('btnToggleLayers').onclick = () => $('layersPopover').classList.toggle('hidden');
+        $('layExplored').onchange = e => s.ent.trace.forEach(en => en.show = e.target.checked);
+        $('layBaseline').onchange = e => { if (s.ent.base) s.ent.base.show = e.target.checked; };
+        $('layGC').onchange = e => { if (s.ent.gc) s.ent.gc.show = e.target.checked; };
+        $('layFollow').onchange = e => {
+            if (s.flight && !s.flight.done && s.flight.started) { e.target.checked ? startFollow() : stopFollow(true); }
+        };
+        $('btnFollow').onclick = () => { s.following ? stopFollow(true) : startFollow(); };
+        $('layWind').onchange = e => {
+            if (e.target.checked) {
+                if (s.ent.wind.length === 0) {
+                    windField.forEach(w => {
+                        const to = Cesium.Math.toRadians((w.from_deg + 180) % 360);   // wind blows TOWARD (from + 180)
+                        const len = 0.5 + Math.min(w.speed_kmh, 250) / 160;           // degrees
+                        const lon2 = w.lon + Math.sin(to) * len;
+                        const lat2 = w.lat + Math.cos(to) * len;
+                        s.ent.wind.push(viewer.entities.add({
+                            polyline: { positions: Cesium.Cartesian3.fromDegreesArray([w.lon, w.lat, lon2, lat2]), width: 5, material: new Cesium.PolylineArrowMaterialProperty(CC('#8B95A8').withAlpha(0.7)) }
+                        }));
+                    });
+                } else s.ent.wind.forEach(en => en.show = true);
+            } else s.ent.wind.forEach(en => en.show = false);
+        };
+
+        // ---------------- Search ----------------
+        $('btnFindRoute').onclick = runSearch;
+
+        function czParam() { return s.cz.map(z => `${z.lat},${z.lon},${z.radius}`).join(';'); }
+
+        async function runSearch() {
+            if (!s.o || !s.d) { showToast("Please select origin and destination."); return; }
+            if (s.o === s.d) { showToast("Origin and destination must differ."); return; }
+            s.runId++;
+            const myRun = s.runId;
+            exitAddZone();
+            clearMapForReplay();
+
+            s.busy = true; $('btnFindRoute').innerText = "Planning..."; updateFindBtn();
+            hide('rightCard');
+            const done = () => { s.busy = false; $('btnFindRoute').innerText = "Find route"; updateFindBtn(); };
+
+            try {
+                let url = `/route?origin=${s.o}&destination=${s.d}&wind=${s.w}&zones=${s.z}&fuel_limit=${s.f}`;
+                const cz = czParam(); if (cz) url += `&custom_zones=${cz}`;
+                const res = await fetch(url);
+                if (myRun !== s.runId) return;
+                done();
+                if (!res.ok) {
+                    let msg = "No route found";
+                    try { const err = await res.json(); msg = err.detail || msg; } catch (_) {}
+                    showToast(msg);
+                    return;
+                }
+                s.routeData = await res.json();
+                startReplay(myRun);
+            } catch (e) {
+                if (myRun === s.runId) { done(); showToast("Network error"); }
+            }
+        }
+
+        // Frame origin + destination with a minimum span so short routes don't zoom to the ground
+        function frameOriginDest(first, last) {
+            let minLon = Math.min(first[0], last[0]), maxLon = Math.max(first[0], last[0]);
+            let minLat = Math.min(first[1], last[1]), maxLat = Math.max(first[1], last[1]);
+            const MIN = 4;
+            if (maxLon - minLon < MIN) { const c = (minLon + maxLon) / 2; minLon = c - MIN / 2; maxLon = c + MIN / 2; }
+            if (maxLat - minLat < MIN) { const c = (minLat + maxLat) / 2; minLat = c - MIN / 2; maxLat = c + MIN / 2; }
+            const padLon = (maxLon - minLon) * 0.2, padLat = (maxLat - minLat) * 0.2;
+            minLon -= padLon; maxLon += padLon; minLat = Math.max(-85, minLat - padLat); maxLat = Math.min(85, maxLat + padLat);
+            viewer.camera.flyTo({ destination: Cesium.Rectangle.fromDegrees(minLon, minLat, maxLon, maxLat), duration: 0.8 });
+        }
+
+        function startReplay(runId) {
+            s.mode = 'replaying';
+            hide('legend');
+            const pts = s.routeData.points;
+            if (pts && pts.length > 1) frameOriginDest(pts[0], pts[pts.length - 1]);
+
+            const t = s.routeData.trace;
+            let i = 0; s.skip = false;
+
+            show('searchCaption');
+            document.querySelectorAll('.speed-btn').forEach(b => {
+                b.onclick = () => { document.querySelectorAll('.speed-btn').forEach(x => x.classList.remove('active')); b.classList.add('active'); s.speed = parseInt(b.dataset.s); };
+            });
+            $('btnSkip').onclick = () => { s.skip = true; };
+
+            let baseStep = 1;
+            if (t.length > 150) baseStep = Math.ceil(t.length / (8 * 60));
+
+            const amber = CC('#FFD60A');
+            const tick = () => {
+                if (runId !== s.runId) return;
+                if (i >= t.length) { finishReplay(runId); return; }
+                const stepsPerFrame = s.skip ? t.length : Math.max(1, Math.floor(s.speed * baseStep));
+                for (let k = 0; k < stepsPerFrame && i < t.length; k++, i++) {
+                    const n = t[i];
+                    $('capText').innerText = `Step ${i + 1} / ${t.length} · ${n.name.substring(0, 8)} · g ${n.g_km.toFixed(0)} · h ${n.h_km.toFixed(0)} · f ${n.f_km.toFixed(0)}`;
+                    const pos = Cesium.Cartesian3.fromDegrees(n.lon, n.lat);
+                    const vis = $('layExplored').checked;
+                    s.ent.trace.push(viewer.entities.add({ position: pos, show: vis, point: { pixelSize: 8, color: amber, outlineColor: Cesium.Color.WHITE, outlineWidth: 1 } }));
+                    s.ent.trace.push(viewer.entities.add({ position: pos, show: vis, point: { pixelSize: 16, color: amber.withAlpha(0.2) } }));
+                    if (n.parent_lat !== null && n.parent_lat !== undefined) {
+                        s.ent.trace.push(viewer.entities.add({ show: vis, polyline: { positions: Cesium.Cartesian3.fromDegreesArray([n.lon, n.lat, n.parent_lon, n.parent_lat]), width: 1.5, material: amber.withAlpha(0.7) } }));
+                    }
+                }
+                requestAnimationFrame(tick);
+            };
+            requestAnimationFrame(tick);
+        }
+
+        function finishReplay(runId) {
+            if (runId !== s.runId) return;
+            s.mode = 'idle';
+            hide('searchCaption');
+            const amber = CC('#FFD60A');
+            s.ent.trace.forEach(e => {
+                if (e.point) e.point.color = amber.withAlpha(0.5);
+                if (e.polyline) e.polyline.material = amber.withAlpha(0.2);
+            });
+            drawFinalRoute(runId);
+            showResults();
+        }
+
+        // ---------------- Final route + overview camera ----------------
+        function flyOverview(duration, cb) {
+            if (!s.routeSphere) { if (cb) cb(); return; }
+            viewer.camera.flyToBoundingSphere(s.routeSphere, {
+                offset: new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(-55), s.routeSphere.radius * 2.5),
+                duration: duration,
+                complete: cb, cancel: cb
+            });
+        }
+
+        function drawFinalRoute(runId) {
+            const rd = s.routeData;
+            const flat = [];
+            rd.points.forEach(p => flat.push(p[0], p[1], p[2]));
+            const posArr = Cesium.Cartesian3.fromDegreesArrayHeights(flat);
+            const cyan = CC('#22D3EE');
+
+            s.ent.final = viewer.entities.add({ polyline: { positions: posArr, width: 6, material: new Cesium.PolylineGlowMaterialProperty({ glowPower: 0.2, color: cyan }) } });
+            s.ent.wall = viewer.entities.add({ wall: { positions: posArr, material: cyan.withAlpha(0.08) } });
+
+            const orig = rd.points[0], dest = rd.points[rd.points.length - 1];
+            const mkLabel = (pt, text, color) => viewer.entities.add({
+                position: Cesium.Cartesian3.fromDegrees(pt[0], pt[1]),
+                label: { text, font: '600 14px Inter', fillColor: Cesium.Color.WHITE, backgroundColor: color, showBackground: true,
+                         verticalOrigin: Cesium.VerticalOrigin.BOTTOM, pixelOffset: new Cesium.Cartesian2(0, -10),
+                         heightReference: Cesium.HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance: Number.POSITIVE_INFINITY }
+            });
+            s.ent.pins.push(mkLabel(orig, s.o, cyan));
+            s.ent.pins.push(mkLabel(dest, s.d, CC('#34D399')));
+
+            if (rd.baseline && rd.baseline.points) {
+                const bflat = []; rd.baseline.points.forEach(p => bflat.push(p[0], p[1], p[2]));
+                s.ent.base = viewer.entities.add({ show: $('layBaseline').checked, polyline: { positions: Cesium.Cartesian3.fromDegreesArrayHeights(bflat), width: 3, material: new Cesium.PolylineDashMaterialProperty({ color: CC('#8B95A8') }) } });
+            }
+            s.ent.gc = viewer.entities.add({ show: $('layGC').checked, polyline: { positions: Cesium.Cartesian3.fromDegreesArray([orig[0], orig[1], dest[0], dest[1]]), width: 2, material: new Cesium.PolylineDashMaterialProperty({ color: Cesium.Color.WHITE.withAlpha(0.5) }) } });
+
+            // Overview: whole route in frame, then take off
+            s.routeSphere = Cesium.BoundingSphere.fromPoints(posArr);
+            const flight = prepareFlight(rd);
+            let launched = false;
+            const launch = () => { if (launched || s.flight !== flight) return; launched = true; beginFlight(flight); };
+            flyOverview(2, launch);
+            setTimeout(launch, 3500);   // safety net
+        }
+
+        // ---------------- Aircraft ----------------
+        function prepareFlight(rd) {
+            stopFlight();
+            const pts = rd.points;
+            const cart = pts.map(p => Cesium.Cartesian3.fromDegrees(p[0], p[1], p[2]));
+            const cum = [0];
+            for (let i = 1; i < cart.length; i++) cum.push(cum[i - 1] + Cesium.Cartesian3.distance(cart[i - 1], cart[i]));
+            const total = cum[cum.length - 1] || 1;
+            const T = Math.max(120, (rd.estimated_time_min || 60) * 60);       // simulated flight seconds
+
+            const start = Cesium.JulianDate.fromDate(new Date());
+            const stop = Cesium.JulianDate.addSeconds(start, T, new Cesium.JulianDate());
+            const posProp = new Cesium.SampledPositionProperty();
+            posProp.forwardExtrapolationType = Cesium.ExtrapolationType.HOLD;
+            for (let i = 0; i < cart.length; i++) {
+                posProp.addSample(Cesium.JulianDate.addSeconds(start, T * cum[i] / total, new Cesium.JulianDate()), cart[i]);
+            }
+
+            const ent = viewer.entities.add({
+                position: posProp,
+                orientation: new Cesium.VelocityOrientationProperty(posProp),
+                point: { pixelSize: 11, color: CC('#22D3EE'), outlineColor: Cesium.Color.WHITE, outlineWidth: 2, disableDepthTestDistance: Number.POSITIVE_INFINITY }
+            });
+
+            const flight = { ent, posProp, start, stop, T, minutes: T / 60, fuelUsed: rd.fuel_kg || 0, started: false, done: false };
+            s.flight = flight;
+
+            // Use the 3D model if the server provides it (static/plane.glb)
+            fetch('/static/plane.glb', { method: 'HEAD' }).then(r => {
+                if (r.ok && s.flight === flight) {
+                    ent.model = new Cesium.ModelGraphics({ uri: '/static/plane.glb', minimumPixelSize: 64, maximumScale: 20000 });
+                }
+            }).catch(() => {});
+
+            // Park the clock at takeoff
+            viewer.clock.startTime = start.clone();
+            viewer.clock.stopTime = stop.clone();
+            viewer.clock.currentTime = start.clone();
+            viewer.clock.clockRange = Cesium.ClockRange.CLAMPED;
+            viewer.clock.multiplier = T / 25;            // whole flight plays in ~25 seconds
+            viewer.clock.shouldAnimate = false;
+
+            flight.tickFn = () => onFlightTick(flight);
+            viewer.scene.preRender.addEventListener(flight.tickFn);
+            return flight;
+        }
+
+        function beginFlight(flight) {
+            flight.started = true;
+            viewer.clock.currentTime = flight.start.clone();
+            viewer.clock.shouldAnimate = true;
+            show('flightHUD');
+            if ($('layFollow').checked) startFollow();
+            syncFollowUI();
+        }
+
+        function headingAt(f, t) {
+            const step = f.T / 300;
+            let tA = t;
+            if (Cesium.JulianDate.secondsDifference(f.stop, tA) < step) tA = Cesium.JulianDate.addSeconds(f.stop, -step, new Cesium.JulianDate());
+            const tB = Cesium.JulianDate.addSeconds(tA, step, new Cesium.JulianDate());
+            const a = f.posProp.getValue(tA), b = f.posProp.getValue(tB);
+            if (!a || !b) return null;
+            const enu = Cesium.Transforms.eastNorthUpToFixedFrame(a);
+            const inv = Cesium.Matrix4.inverse(enu, new Cesium.Matrix4());
+            const local = Cesium.Matrix4.multiplyByPoint(inv, b, new Cesium.Cartesian3());
+            let h = Math.atan2(local.x, local.y);
+            if (h < 0) h += Cesium.Math.TWO_PI;
+            return h;
+        }
+
+        function onFlightTick(f) {
+            if (!f.started || f.done) return;
+            const t = viewer.clock.currentTime;
+            const el = Math.min(Math.max(Cesium.JulianDate.secondsDifference(t, f.start), 0), f.T);
+            const pct = el / f.T;
+            const pos = f.posProp.getValue(t);
+            if (pos) {
+                const c = Cesium.Cartographic.fromCartesian(pos);
+                $('hudAlt').innerText = Math.round(c.height).toLocaleString();
+                const h = headingAt(f, t);
+                if (h !== null) {
+                    $('hudHdg').innerText = Math.round(Cesium.Math.toDegrees(h)) + '°';
+                    if (s.following) {
+                        let diff = ((h - s.camHdg + 3 * Math.PI) % (2 * Math.PI)) - Math.PI;
+                        s.camHdg += diff * 0.06;
+                        viewer.camera.lookAt(pos, new Cesium.HeadingPitchRange(s.camHdg, Cesium.Math.toRadians(-18), 45000));
+                    }
+                }
+            }
+            $('hudFuel').innerText = Math.max(0, 15000 - f.fuelUsed * pct).toLocaleString(undefined, { maximumFractionDigits: 0 });
+            const left = Math.max(0, f.minutes * (1 - pct));
+            $('hudEta').innerText = left >= 60 ? `${Math.floor(left / 60)}h ${Math.round(left % 60)}m` : `${Math.round(left)} min`;
+            $('hudBar').style.width = (pct * 100).toFixed(1) + '%';
+            if (pct >= 1) endFlight(f);
+        }
+
+        function endFlight(f) {
+            f.done = true;
+            viewer.clock.shouldAnimate = false;
+            if (s.following) stopFollow(true);
+            hide('flightHUD');
+        }
+
+        function startFollow() {
+            if (!s.flight || !s.flight.started || s.flight.done) return;
+            const h = headingAt(s.flight, viewer.clock.currentTime);
+            s.camHdg = h === null ? 0 : h;
+            s.following = true;
+            syncFollowUI();
+        }
+
+        function stopFollow(flyBack) {
+            if (!s.following) return;
+            s.following = false;
+            viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
+            syncFollowUI();
+            if (flyBack) flyOverview(1.5);
+        }
+
+        function syncFollowUI() {
+            $('btnFollow').innerText = s.following ? 'Stop following' : 'Follow aircraft';
+            $('btnFollow').classList.toggle('active', s.following);
+            $('layFollow').checked = s.following;
+        }
+
+        function stopFlight() {
+            const f = s.flight;
+            if (s.following) stopFollow(false);
+            if (f) {
+                viewer.scene.preRender.removeEventListener(f.tickFn);
+                viewer.entities.remove(f.ent);
+            }
+            s.flight = null;
+            viewer.clock.shouldAnimate = false;
+            hide('flightHUD');
+            $('hudBar').style.width = '0%';
+        }
+
+        // ---------------- Results ----------------
+        function showResults() {
+            const r = s.routeData;
+            $('valDist').innerText = (r.total_distance_km || 0).toFixed(0);
+            $('valTime').innerText = (r.estimated_time_min || 0).toFixed(0);
+            $('valFuel').innerText = (r.fuel_kg || 0).toFixed(0);
+            $('valNodes').innerText = r.nodes_expanded || 0;
+
+            if (r.wind_saving_pct != null && r.wind_saving_pct > 0) {
+                $('insightWindTxt').innerText = `Wind-aware routing saves ${r.wind_saving_pct}% effort vs a distance-only route.`;
+                show('insightWind');
+            } else hide('insightWind');
+
+            const tbody = document.querySelector('#legsTable tbody'); tbody.innerHTML = '';
+            (r.legs || []).forEach(l => {
+                const hw = l.headwind_kmh;
+                const windStr = hw > 0 ? `<span style="color:var(--rose)">+${hw.toFixed(0)}</span>` : `<span style="color:var(--emerald)">${Math.abs(hw).toFixed(0)}</span>`;
+                tbody.innerHTML += `<tr><td>${l.from_name.substring(0, 8)} → ${l.to_name.substring(0, 8)}</td><td>${l.airway_name}</td><td>${l.distance_km.toFixed(0)}</td><td>${windStr}</td></tr>`;
+            });
+
+            // Real OpenSky flights on the same airport pair
+            hide('realFlightCard');
+            const key = `${s.o}-${s.d}`;
+            if (validationPairs[key]) {
+                const myRun = s.runId;
+                let url = `/validate?origin=${s.o}&destination=${s.d}&wind=${s.w}&zones=${s.z}&fuel_limit=${s.f}`;
+                const cz = czParam(); if (cz) url += `&custom_zones=${cz}`;
+                fetch(url).then(x => x.json()).then(v => {
+                    if (myRun !== s.runId || !v.n_flights || v.real_avg_duration_min == null) return;
+                    const err = v.time_error_pct;
+                    $('realFlightTxt').innerText = `${v.n_flights} real flights on this route averaged ${v.real_avg_duration_min.toFixed(0)} min · A* estimate ${v.computed_time_min.toFixed(0)} min (${err >= 0 ? '+' : ''}${err.toFixed(1)}%)`;
+                    show('realFlightCard');
+                }).catch(() => {});
+            }
+
+            $('heuResult').classList.add('hidden');
+            $('btnCompare').disabled = false; $('btnCompare').innerText = "Compare without heuristic";
+            s.ent.violets.forEach(e => viewer.entities.remove(e)); s.ent.violets = [];
+            hide('legViolet');
+            show('legend');
+            show('rightCard');
+        }
+
+        // ---------------- Heuristic comparison ----------------
+        $('btnCompare').onclick = async () => {
+            $('btnCompare').disabled = true; $('btnCompare').innerText = "Running search...";
+            const myRun = ++s.runId;
+            try {
+                let url = `/route?origin=${s.o}&destination=${s.d}&wind=${s.w}&zones=${s.z}&fuel_limit=${s.f}&heuristic=off`;
+                const cz = czParam(); if (cz) url += `&custom_zones=${cz}`;
+                const res = await fetch(url);
+                if (myRun !== s.runId) return;
+                const offData = await res.json();
+                $('btnCompare').innerText = "Comparison complete";
+                show('legViolet');
+
+                const t = offData.trace;
+                let i = 0;
+                const stepsPerFrame = Math.max(1, Math.ceil(t.length / 180));
+                const tick = () => {
+                    if (myRun !== s.runId) return;
+                    if (i >= t.length) { showHeuStats(offData); return; }
+                    for (let k = 0; k < stepsPerFrame && i < t.length; k++, i++) {
+                        s.ent.violets.push(viewer.entities.add({
+                            position: Cesium.Cartesian3.fromDegrees(t[i].lon, t[i].lat),
+                            point: { pixelSize: 5, color: CC('#A78BFA').withAlpha(0.6) },
+                            show: $('togViolet').checked
+                        }));
+                    }
+                    requestAnimationFrame(tick);
+                };
+                requestAnimationFrame(tick);
+            } catch (e) { if (myRun === s.runId) $('btnCompare').innerText = "Error"; }
+        };
+
+        function showHeuStats(offData) {
+            const nOn = s.routeData.nodes_expanded, nOff = offData.nodes_expanded;
+            const effOn = s.routeData.effective_km, effOff = offData.effective_km;
+            $('valHeuOn').innerText = nOn; $('valHeuOff').innerText = nOff;
+            setTimeout(() => {
+                const maxN = Math.max(nOn, nOff) || 1;
+                $('barOn').style.width = (nOn / maxN * 100) + '%';
+                $('barOff').style.width = (nOff / maxN * 100) + '%';
+            }, 50);
+            if (Math.abs(effOn - effOff) / effOn < 0.005) {
+                const pct = ((nOff - nOn) / nOff * 100).toFixed(0);
+                $('heuTitle').innerText = `Same optimal route, ${pct}% fewer nodes explored.`;
+            } else $('heuTitle').innerText = "Routes differ slightly.";
+            show('heuResult');
+        }
+        $('togViolet').onchange = e => s.ent.violets.forEach(en => en.show = e.target.checked);
+
+        // ---------------- Reset ----------------
+        function resetAll(flyHome = true) {
+            s.runId++; s.demoId++;
+            clearTimeout(s.demoTimer); hide('demoCaption');
+            clearMapForReplay();
+            exitAddZone();
+            s.cz = []; s.ent.cz.forEach(e => viewer.entities.remove(e)); s.ent.cz = []; hide('btnClearZones');
+            s.busy = false; $('btnFindRoute').innerText = "Find route";
+            setAirport(true, null); setAirport(false, null);
+            ['togWind', 'togZones', 'togFuel'].forEach(id => setToggle(id, true));
+            $('layExplored').checked = true;
+            ['layWind', 'layBaseline', 'layGC', 'layFollow'].forEach(id => { $(id).checked = false; });
+            s.ent.wind.forEach(e => e.show = false);
+            s.routeData = null; s.routeSphere = null; s.mode = 'idle';
+            ['rightCard', 'searchCaption', 'addZoneHint', 'legend', 'flightHUD'].forEach(hide);
+            document.querySelectorAll('.demo-chip').forEach(b => b.disabled = false);
+            if (flyHome) viewer.camera.flyTo({ destination: HOME_VIEW(), duration: 1.2 });
+        }
+        $('btnReset').onclick = () => resetAll(true);
+
+        function clearMapForReplay() {
+            s.ent.trace.forEach(e => viewer.entities.remove(e)); s.ent.trace = [];
+            s.ent.violets.forEach(e => viewer.entities.remove(e)); s.ent.violets = [];
+            s.ent.pins.forEach(e => viewer.entities.remove(e)); s.ent.pins = [];
+            ['final', 'wall', 'base', 'gc'].forEach(k => { if (s.ent[k]) { viewer.entities.remove(s.ent[k]); s.ent[k] = null; } });
+            stopFlight();
+            hide('legend');
+        }
+
+        // ---------------- Quick demos ----------------
+        const DEMOS = {
+            wind: { pairs: [['VABB', 'VECC'], ['VECC', 'VABB'], ['VEAT', 'VABJ'], ['VIDP', 'VOMM'], ['VOMM', 'VIDP'], ['VIDP', 'VABB']] },
+            zone: { pairs: [['VIDP', 'VOBL'], ['VIDP', 'VOHY'], ['VIDP', 'VOMM'], ['VABB', 'VECC'], ['VOHY', 'VIDP']] },
+            custom: { pairs: [['VIDP', 'VABB'], ['VIDP', 'VOBL'], ['VABB', 'VOMM']] }
+        };
+
+        function demoCaption(text, ms = 9000) {
+            $('demoText').innerText = text; show('demoCaption');
+            clearTimeout(s.demoTimer); s.demoTimer = setTimeout(() => hide('demoCaption'), ms);
+        }
+        async function probe(o, d, wind, zones) {
+            try {
+                const r = await fetch(`/route?origin=${o}&destination=${d}&wind=${wind}&zones=${zones}&fuel_limit=true`);
+                return r.ok ? await r.json() : null;
+            } catch (_) { return null; }
+        }
+        function waitIdle(demoId) {
+            return new Promise(resolve => {
+                const iv = setInterval(() => {
+                    if (s.demoId !== demoId) { clearInterval(iv); resolve(false); }
+                    else if (s.mode === 'idle' && s.routeData && s.flight) { clearInterval(iv); resolve(true); }
+                }, 250);
+            });
+        }
+        const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+        async function runDemo(kind) {
+            if (!airports.length) { showToast("Data not loaded yet."); return; }
+            resetAll(false);
+            const demoId = s.demoId;
+            document.querySelectorAll('.demo-chip').forEach(b => b.disabled = true);
+            demoCaption('Preparing demo…', 15000);
+
+            const pairs = DEMOS[kind].pairs.filter(([o, d]) => findAirport(o) && findAirport(d));
+            if (!pairs.length) { demoCaption('Demo airports not found in the dataset.'); document.querySelectorAll('.demo-chip').forEach(b => b.disabled = false); return; }
+
+            let o, d, caption;
+
+            if (kind === 'wind') {
+                const res = await Promise.all(pairs.map(async ([a, b]) => ({ a, b, r: await probe(a, b, true, true) })));
+                if (s.demoId !== demoId) return;
+                let best = res.filter(x => x.r).sort((x, y) => (y.r.wind_saving_pct || 0) - (x.r.wind_saving_pct || 0))[0];
+                if (!best) { demoCaption('Could not plan the demo route.'); document.querySelectorAll('.demo-chip').forEach(b => b.disabled = false); return; }
+                o = best.a; d = best.b;
+                const sv = best.r.wind_saving_pct || 0;
+                caption = sv > 0
+                    ? `Wind effect: the wind-aware route (cyan) saves ${sv}% effort vs the distance-only route (grey dashed).`
+                    : `Wind effect: the dashed grey distance-only route and the cyan wind-aware route coincide here — try another pair.`;
+                $('layBaseline').checked = true;
+            } else if (kind === 'zone') {
+                const res = await Promise.all(pairs.map(async ([a, b]) => ({ a, b, on: await probe(a, b, true, true), off: await probe(a, b, true, false) })));
+                if (s.demoId !== demoId) return;
+                let best = res.filter(x => x.on && x.off).sort((x, y) => (y.on.total_distance_km - y.off.total_distance_km) - (x.on.total_distance_km - x.off.total_distance_km))[0];
+                if (!best) { demoCaption('Could not plan the demo route.'); document.querySelectorAll('.demo-chip').forEach(b => b.disabled = false); return; }
+                o = best.a; d = best.b;
+                const extra = best.on.total_distance_km - best.off.total_distance_km;
+                caption = extra > 5
+                    ? `No-fly zones: A* bends around the red zones, adding ${extra.toFixed(0)} km (+${(extra / best.off.total_distance_km * 100).toFixed(1)}%) instead of flying through them.`
+                    : `No-fly zones are active (red circles); this route happens to stay clear of them.`;
+                $('layGC').checked = true;
+            } else {
+                [o, d] = pairs[0];
+            }
+
+            setAirport(true, findAirport(o)); setAirport(false, findAirport(d));
+            document.querySelectorAll('.demo-chip').forEach(b => b.disabled = false);
+
+            if (kind !== 'custom') {
+                demoCaption(caption, 11000);
+                runSearch();
+                return;
+            }
+
+            // Custom-zone demo: plan, then drop a zone on the route and re-plan
+            demoCaption('Step 1: normal route.', 6000);
+            runSearch();
+            if (!(await waitIdle(demoId))) return;
+            await sleep(3500);
+            if (s.demoId !== demoId) return;
+            const p = s.routeData.points[Math.floor(s.routeData.points.length / 2)];
+            addCustomZone(p[1], p[0], 100);
+            demoCaption('Step 2: a custom 100 km no-fly zone appears on the route. A* re-plans around it.', 11000);
+            runSearch();
+        }
+        document.querySelectorAll('.demo-chip').forEach(b => { b.onclick = () => runDemo(b.dataset.demo); });
+    </script>
+</body>
+</html>

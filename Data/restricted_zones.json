@@ -1,0 +1,5 @@
+[
+  {"name": "Demo restricted zone 1 (Rajasthan corridor)", "center_lat": 25.2, "center_lon": 74.6, "radius_km": 55},
+  {"name": "Demo restricted zone 2 (Central India)", "center_lat": 21.2, "center_lon": 78.8, "radius_km": 70},
+  {"name": "Demo restricted zone 3 (Deccan plateau)", "center_lat": 16.0, "center_lon": 77.0, "radius_km": 60}
+]

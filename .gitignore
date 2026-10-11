@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.venv/
+Data/earth_awy.dat
+Data/earth_fix.dat
+Data/earth_nav.dat
